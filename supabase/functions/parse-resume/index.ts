@@ -37,12 +37,18 @@ serve(async (req) => {
   }
 
   try {
-    const { filePath } = await req.json();
+    const { filePath, userId } = await req.json();
     
+    if (!filePath) {
+      throw new Error('File path is required');
+    }
+
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
+
+    console.log('Attempting to download file from path:', filePath);
 
     // Download the file from Supabase Storage
     const { data: fileData, error: downloadError } = await supabaseClient.storage
@@ -50,18 +56,33 @@ serve(async (req) => {
       .download(filePath);
 
     if (downloadError) {
+      console.error('Download error:', downloadError);
       throw new Error(`Failed to download file: ${downloadError.message}`);
     }
 
+    if (!fileData) {
+      throw new Error('No file data received');
+    }
+
+    console.log('File downloaded successfully, size:', fileData.size);
+
     // Convert file to base64 for OpenAI API
     const arrayBuffer = await fileData.arrayBuffer();
-    const base64File = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+    const uint8Array = new Uint8Array(arrayBuffer);
+    const base64File = btoa(String.fromCharCode(...uint8Array));
+
+    console.log('File converted to base64, length:', base64File.length);
+
+    const apiKey = Deno.env.get('OPENAI_API_KEY');
+    if (!apiKey) {
+      throw new Error('OpenAI API key not configured');
+    }
 
     // Use OpenAI to parse the resume
     const openAIResponse = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${Deno.env.get('OPENAI_API_KEY')}`,
+        'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
@@ -105,7 +126,7 @@ serve(async (req) => {
           },
           {
             role: 'user',
-            content: `Please parse this resume file and extract the structured information. The file is in base64 format: ${base64File.substring(0, 1000)}...`
+            content: `Please parse this resume and extract the structured information. Here is the resume content to analyze: data:application/octet-stream;base64,${base64File.substring(0, 50000)}`
           }
         ],
         temperature: 0.1,
@@ -114,17 +135,24 @@ serve(async (req) => {
     });
 
     if (!openAIResponse.ok) {
+      const errorText = await openAIResponse.text();
+      console.error('OpenAI API error:', errorText);
       throw new Error(`OpenAI API error: ${openAIResponse.statusText}`);
     }
 
     const openAIResult = await openAIResponse.json();
     const parsedContent = openAIResult.choices[0].message.content;
 
+    console.log('OpenAI response received:', parsedContent);
+
     // Parse the JSON response
     let parsedData: ParsedResumeData;
     try {
-      parsedData = JSON.parse(parsedContent);
+      // Remove any markdown formatting if present
+      const jsonContent = parsedContent.replace(/```json\n?/, '').replace(/```\n?$/, '');
+      parsedData = JSON.parse(jsonContent);
     } catch (parseError) {
+      console.error('JSON parsing error:', parseError);
       // If JSON parsing fails, create a fallback structure
       parsedData = {
         name: 'Unknown',
@@ -137,23 +165,33 @@ serve(async (req) => {
       };
     }
 
+    // Generate ATS score based on resume completeness
+    const atsScore = calculateATSScore(parsedData);
+
     // Store the parsed data in Supabase
-    const { error: insertError } = await supabaseClient
+    const { data: resumeRecord, error: insertError } = await supabaseClient
       .from('resumes')
       .insert({
-        title: `Resume - ${parsedData.name}`,
+        title: `Resume - ${parsedData.name || 'Unknown'}`,
         content: parsedData,
-        user_id: req.headers.get('user-id'), // You'll need to pass this from the frontend
-        ats_score: Math.floor(Math.random() * 30) + 70 // Placeholder ATS score
-      });
+        user_id: userId || 'anonymous',
+        ats_score: atsScore
+      })
+      .select()
+      .single();
 
     if (insertError) {
       console.error('Error storing resume:', insertError);
+      // Don't throw error here, just log it as parsing was successful
     }
+
+    console.log('Resume processed successfully');
 
     return new Response(JSON.stringify({ 
       success: true, 
-      parsedData 
+      parsedData,
+      atsScore,
+      resumeId: resumeRecord?.id
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
@@ -161,6 +199,7 @@ serve(async (req) => {
   } catch (error) {
     console.error('Resume parsing error:', error);
     return new Response(JSON.stringify({ 
+      success: false,
       error: error.message || 'Failed to parse resume' 
     }), {
       status: 500,
@@ -168,3 +207,28 @@ serve(async (req) => {
     });
   }
 });
+
+function calculateATSScore(data: ParsedResumeData): number {
+  let score = 0;
+  
+  // Basic information (30 points)
+  if (data.name && data.name !== 'Unknown') score += 10;
+  if (data.email) score += 10;
+  if (data.phone) score += 10;
+  
+  // Skills (25 points)
+  if (data.skills.length > 0) score += 15;
+  if (data.skills.length > 5) score += 10;
+  
+  // Experience (25 points)
+  if (data.experience.length > 0) score += 15;
+  if (data.experience.length > 2) score += 10;
+  
+  // Education (15 points)
+  if (data.education.length > 0) score += 15;
+  
+  // Projects (5 points)
+  if (data.projects.length > 0) score += 5;
+  
+  return Math.min(score, 100);
+}

@@ -4,6 +4,7 @@ import { useDropzone } from 'react-dropzone';
 import { Upload, FileText, CheckCircle, AlertCircle, Brain, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from '@/integrations/supabase/client';
+import { useToast } from '@/hooks/use-toast';
 
 interface ParsedResumeData {
   name: string;
@@ -32,6 +33,8 @@ const EnhancedResumeUpload = ({ userProfile, setUserProfile }) => {
   const [uploadStatus, setUploadStatus] = useState<'idle' | 'uploading' | 'parsing' | 'success' | 'error'>('idle');
   const [parsedData, setParsedData] = useState<ParsedResumeData | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [atsScore, setAtsScore] = useState<number | null>(null);
+  const { toast } = useToast();
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     const file = acceptedFiles[0];
@@ -41,40 +44,94 @@ const EnhancedResumeUpload = ({ userProfile, setUserProfile }) => {
     setError(null);
 
     try {
+      // Validate file type
+      const allowedTypes = [
+        'application/pdf',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'application/msword'
+      ];
+
+      if (!allowedTypes.includes(file.type)) {
+        throw new Error('Please upload a PDF or Word document (.pdf, .doc, .docx)');
+      }
+
+      // Validate file size (10MB limit)
+      if (file.size > 10 * 1024 * 1024) {
+        throw new Error('File size must be less than 10MB');
+      }
+
+      console.log('Uploading file:', file.name, 'Type:', file.type, 'Size:', file.size);
+
       // Upload file to Supabase Storage
       const fileExt = file.name.split('.').pop();
-      const fileName = `${Date.now()}.${fileExt}`;
+      const fileName = `${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`;
       
       const { data: uploadData, error: uploadError } = await supabase.storage
         .from('resumes')
-        .upload(fileName, file);
+        .upload(fileName, file, {
+          cacheControl: '3600',
+          upsert: false
+        });
 
-      if (uploadError) throw uploadError;
+      if (uploadError) {
+        console.error('Upload error:', uploadError);
+        throw new Error(`Upload failed: ${uploadError.message}`);
+      }
 
+      console.log('File uploaded successfully:', uploadData.path);
       setUploadStatus('parsing');
+
+      // Get current user for associating the resume
+      const { data: { user } } = await supabase.auth.getUser();
+      const userId = user?.id || null;
 
       // Call our AI parsing edge function
       const { data: parseResult, error: parseError } = await supabase.functions
         .invoke('parse-resume', {
-          body: { filePath: uploadData.path }
+          body: { 
+            filePath: uploadData.path,
+            userId: userId
+          }
         });
 
-      if (parseError) throw parseError;
+      if (parseError) {
+        console.error('Parse error:', parseError);
+        throw new Error(`Parsing failed: ${parseError.message}`);
+      }
+
+      if (!parseResult.success) {
+        throw new Error(parseResult.error || 'Failed to parse resume');
+      }
 
       const parsed = parseResult.parsedData as ParsedResumeData;
       setParsedData(parsed);
+      setAtsScore(parseResult.atsScore || 0);
+      
       setUserProfile({
         ...parsed,
-        resumeUrl: uploadData.path
+        resumeUrl: uploadData.path,
+        atsScore: parseResult.atsScore || 0
       });
+      
       setUploadStatus('success');
 
-    } catch (err) {
+      toast({
+        title: "Resume Parsed Successfully!",
+        description: `ATS Score: ${parseResult.atsScore || 0}/100`,
+      });
+
+    } catch (err: any) {
       console.error('Resume processing error:', err);
       setError(err.message || 'Failed to process resume');
       setUploadStatus('error');
+      
+      toast({
+        title: "Upload Failed",
+        description: err.message || 'Failed to process resume',
+        variant: "destructive",
+      });
     }
-  }, [setUserProfile]);
+  }, [setUserProfile, toast]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -86,6 +143,13 @@ const EnhancedResumeUpload = ({ userProfile, setUserProfile }) => {
     maxFiles: 1,
     maxSize: 10 * 1024 * 1024 // 10MB
   });
+
+  const resetUpload = () => {
+    setUploadStatus('idle');
+    setError(null);
+    setParsedData(null);
+    setAtsScore(null);
+  };
 
   return (
     <div className="space-y-8">
@@ -161,10 +225,10 @@ const EnhancedResumeUpload = ({ userProfile, setUserProfile }) => {
               <AlertCircle className="w-6 h-6 mr-3" />
               <h4 className="font-semibold">Upload Failed</h4>
             </div>
-            <p className="text-red-700">{error}</p>
+            <p className="text-red-700 mb-4">{error}</p>
             <button
-              onClick={() => setUploadStatus('idle')}
-              className="mt-4 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors"
+              onClick={resetUpload}
+              className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors"
             >
               Try Again
             </button>
@@ -177,18 +241,39 @@ const EnhancedResumeUpload = ({ userProfile, setUserProfile }) => {
             animate={{ opacity: 1, y: 0 }}
             className="space-y-6"
           >
-            <div className="bg-green-50 border border-green-200 p-4 rounded-lg flex items-center">
-              <CheckCircle className="w-6 h-6 text-green-600 mr-3" />
-              <div>
-                <h4 className="font-semibold text-green-800">Analysis Complete!</h4>
-                <p className="text-green-700">Your resume has been successfully analyzed by AI.</p>
+            <div className="bg-green-50 border border-green-200 p-4 rounded-lg flex items-center justify-between">
+              <div className="flex items-center">
+                <CheckCircle className="w-6 h-6 text-green-600 mr-3" />
+                <div>
+                  <h4 className="font-semibold text-green-800">Analysis Complete!</h4>
+                  <p className="text-green-700">Your resume has been successfully analyzed by AI.</p>
+                </div>
               </div>
+              {atsScore !== null && (
+                <div className="bg-white px-4 py-2 rounded-lg">
+                  <div className="text-sm text-gray-600">ATS Score</div>
+                  <div className={`text-2xl font-bold ${
+                    atsScore >= 80 ? 'text-green-600' : 
+                    atsScore >= 60 ? 'text-yellow-600' : 'text-red-600'
+                  }`}>
+                    {atsScore}/100
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="bg-white p-8 rounded-xl shadow-lg border">
-              <div className="flex items-center mb-6">
-                <Brain className="w-8 h-8 text-purple-600 mr-3" />
-                <h3 className="text-2xl font-bold text-gray-900">AI-Extracted Profile</h3>
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center">
+                  <Brain className="w-8 h-8 text-purple-600 mr-3" />
+                  <h3 className="text-2xl font-bold text-gray-900">AI-Extracted Profile</h3>
+                </div>
+                <button
+                  onClick={resetUpload}
+                  className="text-blue-600 hover:text-blue-700 font-medium"
+                >
+                  Upload Another
+                </button>
               </div>
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -221,9 +306,23 @@ const EnhancedResumeUpload = ({ userProfile, setUserProfile }) => {
                     ))}
                   </div>
 
-                  <h4 className="font-semibold text-gray-900 mb-3 mt-6">Projects</h4>
+                  <h4 className="font-semibold text-gray-900 mb-3 mt-6">Experience</h4>
                   <div className="space-y-2">
-                    {parsedData.projects.slice(0, 3).map((project, index) => (
+                    {parsedData.experience.slice(0, 3).map((exp, index) => (
+                      <div key={index} className="p-3 bg-gray-50 rounded-lg">
+                        <p className="font-medium">{exp.title}</p>
+                        <p className="text-sm text-gray-600">{exp.company} • {exp.duration}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {parsedData.projects.length > 0 && (
+                <div className="mt-6">
+                  <h4 className="font-semibold text-gray-900 mb-3">Projects</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {parsedData.projects.slice(0, 4).map((project, index) => (
                       <div key={index} className="p-3 bg-gray-50 rounded-lg">
                         <p className="font-medium">{project.name}</p>
                         <p className="text-sm text-gray-600 mb-2">{project.description}</p>
@@ -238,7 +337,7 @@ const EnhancedResumeUpload = ({ userProfile, setUserProfile }) => {
                     ))}
                   </div>
                 </div>
-              </div>
+              )}
             </div>
           </motion.div>
         )}
