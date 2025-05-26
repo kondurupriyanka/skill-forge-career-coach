@@ -1,129 +1,151 @@
 
 import React from 'react';
-import { Upload, Target, BookOpen, Users, TrendingUp, Award } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { Brain, Zap, Target, TrendingUp, Users, Award } from 'lucide-react';
+import AISetupPrompt from './AISetupPrompt';
+import AICareerChat from './AICareerChat';
+import RealTimeJobMatcher from './RealTimeJobMatcher';
 
-const WelcomeSection = () => {
+const WelcomeSection = ({ userProfile, setUserProfile }) => {
   const features = [
     {
-      icon: Upload,
-      title: 'Resume Analysis',
-      description: 'Upload your resume and get AI-powered insights on your skills and experience',
-      color: 'bg-blue-500'
+      icon: Brain,
+      title: 'AI-Powered Analysis',
+      description: 'Advanced resume parsing and skill assessment using cutting-edge AI technology',
+      color: 'from-purple-500 to-pink-500'
+    },
+    {
+      icon: Zap,
+      title: 'Real-Time Matching',
+      description: 'Live job recommendations updated continuously based on market trends',
+      color: 'from-blue-500 to-cyan-500'
     },
     {
       icon: Target,
-      title: 'Job Matching',
-      description: 'Find opportunities that match your profile and career goals',
-      color: 'bg-green-500'
-    },
-    {
-      icon: BookOpen,
-      title: 'Learning Roadmap',
-      description: 'Get personalized learning paths to bridge skill gaps',
-      color: 'bg-purple-500'
-    },
-    {
-      icon: Users,
-      title: 'Interview Prep',
-      description: 'Practice with AI-generated questions tailored to your target roles',
-      color: 'bg-orange-500'
+      title: 'Personalized Roadmaps',
+      description: 'Custom learning paths tailored to your career goals and skill gaps',
+      color: 'from-green-500 to-emerald-500'
     },
     {
       icon: TrendingUp,
-      title: 'Progress Tracking',
-      description: 'Monitor your growth and achievements over time',
-      color: 'bg-indigo-500'
-    },
-    {
-      icon: Award,
-      title: 'Skill Assessment',
-      description: 'Identify your strengths and areas for improvement',
-      color: 'bg-pink-500'
+      title: 'Career Growth',
+      description: 'Track your progress and get insights on career advancement opportunities',
+      color: 'from-orange-500 to-red-500'
     }
   ];
 
+  const stats = [
+    { number: '10,000+', label: 'Job Matches Daily', icon: Users },
+    { number: '95%', label: 'Success Rate', icon: Award },
+    { number: '24/7', label: 'AI Support', icon: Brain },
+    { number: '100+', label: 'Skills Tracked', icon: Target }
+  ];
+
   return (
-    <div className="space-y-8">
+    <div className="space-y-12">
       {/* Hero Section */}
-      <div className="text-center py-12 bg-gradient-to-r from-blue-600 to-green-600 rounded-xl text-white">
-        <h1 className="text-4xl md:text-5xl font-bold mb-4">
-          Welcome to Your AI Career Journey
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="text-center"
+      >
+        <h1 className="text-5xl font-bold bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 bg-clip-text text-transparent mb-6">
+          Transform Your Career with AI
         </h1>
-        <p className="text-xl md:text-2xl mb-8 max-w-3xl mx-auto">
-          Empowering students from Tier-2 & Tier-3 institutions to achieve their career dreams with AI-powered guidance
+        <p className="text-xl text-gray-600 max-w-3xl mx-auto mb-8">
+          Experience the future of career development with our AI-powered platform. 
+          Get real-time job matches, personalized skill assessments, and intelligent career guidance.
         </p>
-        <div className="flex flex-col sm:flex-row gap-4 justify-center">
-          <button className="bg-white text-blue-600 px-8 py-3 rounded-lg font-semibold hover:bg-gray-100 transition-colors">
-            Upload Your Resume
-          </button>
-          <button className="border-2 border-white text-white px-8 py-3 rounded-lg font-semibold hover:bg-white hover:text-blue-600 transition-colors">
-            Explore Features
-          </button>
-        </div>
-      </div>
+      </motion.div>
+
+      {/* AI Setup Status */}
+      <AISetupPrompt />
+
+      {/* Stats Section */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.2 }}
+        className="grid grid-cols-2 md:grid-cols-4 gap-6"
+      >
+        {stats.map((stat, index) => {
+          const IconComponent = stat.icon;
+          return (
+            <div key={index} className="text-center p-6 bg-white rounded-xl shadow-lg border">
+              <IconComponent className="w-8 h-8 text-blue-600 mx-auto mb-3" />
+              <div className="text-3xl font-bold text-gray-900 mb-1">{stat.number}</div>
+              <div className="text-sm text-gray-600">{stat.label}</div>
+            </div>
+          );
+        })}
+      </motion.div>
 
       {/* Features Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {features.map((feature, index) => (
-          <div
-            key={index}
-            className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow"
-          >
-            <div className={`${feature.color} w-12 h-12 rounded-lg flex items-center justify-center mb-4`}>
-              <feature.icon className="w-6 h-6 text-white" />
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.3 }}
+        className="grid grid-cols-1 md:grid-cols-2 gap-8"
+      >
+        {features.map((feature, index) => {
+          const IconComponent = feature.icon;
+          return (
+            <div key={index} className="relative p-8 bg-white rounded-2xl shadow-lg border overflow-hidden group hover:shadow-xl transition-shadow">
+              <div className={`absolute inset-0 bg-gradient-to-r ${feature.color} opacity-0 group-hover:opacity-5 transition-opacity`}></div>
+              <div className={`w-16 h-16 bg-gradient-to-r ${feature.color} rounded-xl flex items-center justify-center mb-6`}>
+                <IconComponent className="w-8 h-8 text-white" />
+              </div>
+              <h3 className="text-2xl font-bold text-gray-900 mb-4">{feature.title}</h3>
+              <p className="text-gray-600 leading-relaxed">{feature.description}</p>
             </div>
-            <h3 className="text-xl font-semibold text-gray-900 mb-2">{feature.title}</h3>
-            <p className="text-gray-600">{feature.description}</p>
-          </div>
-        ))}
-      </div>
+          );
+        })}
+      </motion.div>
 
-      {/* Statistics */}
-      <div className="bg-white rounded-xl p-8 shadow-sm border border-gray-200">
-        <h3 className="text-2xl font-bold text-center text-gray-900 mb-8">
-          Helping Students Succeed
-        </h3>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-8 text-center">
-          <div>
-            <div className="text-3xl font-bold text-blue-600 mb-2">10,000+</div>
-            <div className="text-gray-600">Students Helped</div>
-          </div>
-          <div>
-            <div className="text-3xl font-bold text-green-600 mb-2">95%</div>
-            <div className="text-gray-600">Job Match Accuracy</div>
-          </div>
-          <div>
-            <div className="text-3xl font-bold text-purple-600 mb-2">500+</div>
-            <div className="text-gray-600">Partner Companies</div>
-          </div>
-          <div>
-            <div className="text-3xl font-bold text-orange-600 mb-2">85%</div>
-            <div className="text-gray-600">Placement Success</div>
-          </div>
-        </div>
-      </div>
+      {/* AI Career Chat */}
+      {userProfile && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.4 }}
+        >
+          <h2 className="text-3xl font-bold text-gray-900 mb-6">AI Career Coach</h2>
+          <AICareerChat userProfile={userProfile} />
+        </motion.div>
+      )}
 
-      {/* Quick Start Guide */}
-      <div className="bg-gradient-to-r from-gray-50 to-blue-50 rounded-xl p-8">
-        <h3 className="text-2xl font-bold text-gray-900 mb-6">Get Started in 3 Simple Steps</h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="text-center">
-            <div className="bg-blue-600 text-white w-12 h-12 rounded-full flex items-center justify-center text-xl font-bold mx-auto mb-4">1</div>
-            <h4 className="font-semibold text-gray-900 mb-2">Upload Resume</h4>
-            <p className="text-gray-600">Share your resume or enter your details manually</p>
-          </div>
-          <div className="text-center">
-            <div className="bg-green-600 text-white w-12 h-12 rounded-full flex items-center justify-center text-xl font-bold mx-auto mb-4">2</div>
-            <h4 className="font-semibold text-gray-900 mb-2">Get Analysis</h4>
-            <p className="text-gray-600">Receive AI-powered insights on your profile</p>
-          </div>
-          <div className="text-center">
-            <div className="bg-purple-600 text-white w-12 h-12 rounded-full flex items-center justify-center text-xl font-bold mx-auto mb-4">3</div>
-            <h4 className="font-semibold text-gray-900 mb-2">Follow Roadmap</h4>
-            <p className="text-gray-600">Execute your personalized career plan</p>
-          </div>
-        </div>
-      </div>
+      {/* Real-Time Job Matcher */}
+      {userProfile && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.5 }}
+        >
+          <RealTimeJobMatcher userProfile={userProfile} />
+        </motion.div>
+      )}
+
+      {/* Call to Action */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.6 }}
+        className="text-center bg-gradient-to-r from-blue-600 to-purple-600 text-white p-12 rounded-2xl"
+      >
+        <h2 className="text-3xl font-bold mb-4">Ready to Accelerate Your Career?</h2>
+        <p className="text-xl mb-8 text-blue-100">
+          Join thousands of professionals who have transformed their careers with AI guidance
+        </p>
+        {!userProfile ? (
+          <p className="text-lg text-blue-200">
+            Upload your resume in the "AI Resume Parser" tab to get started!
+          </p>
+        ) : (
+          <p className="text-lg text-blue-200">
+            Explore all the AI-powered features in the tabs above to maximize your career potential!
+          </p>
+        )}
+      </motion.div>
     </div>
   );
 };
