@@ -66,12 +66,12 @@ serve(async (req) => {
 
     console.log('File downloaded successfully, size:', fileData.size);
 
-    const apiKey = Deno.env.get('OPENAI_API_KEY');
+    const apiKey = Deno.env.get('GEMINI_API_KEY');
     if (!apiKey) {
-      throw new Error('OpenAI API key not configured');
+      throw new Error('Gemini API key not configured');
     }
 
-    // Convert file to base64 for OpenAI API
+    // Convert file to base64 for Gemini API
     const arrayBuffer = await fileData.arrayBuffer();
     const uint8Array = new Uint8Array(arrayBuffer);
     const base64File = btoa(String.fromCharCode(...uint8Array));
@@ -90,19 +90,18 @@ serve(async (req) => {
 
     console.log('Processing file with mime type:', mimeType);
 
-    // Use OpenAI to parse the resume with improved prompt
-    const openAIResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+    // Use Gemini AI to parse the resume
+    const geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-4o',
-        messages: [
+        contents: [
           {
-            role: 'system',
-            content: `You are an expert resume parser. Extract structured information from resumes and return ONLY valid JSON in the exact format specified below. Do not include any markdown formatting, explanations, or additional text.
+            parts: [
+              {
+                text: `You are an expert resume parser. Extract structured information from this resume document and return ONLY valid JSON in the exact format specified below. Do not include any markdown formatting, explanations, or additional text.
 
 Return the data in this exact JSON format:
 {
@@ -134,34 +133,39 @@ Return the data in this exact JSON format:
   ]
 }
 
-Extract only factual information. If information is missing, use empty strings or empty arrays. Do not make up information.`
-          },
-          {
-            role: 'user',
-            content: `Please parse this resume and extract the structured information. The file is a ${mimeType} document. Return only the JSON data as specified.
-
-File content (base64): data:${mimeType};base64,${base64File.substring(0, 100000)}`
+Extract only factual information. If information is missing, use empty strings or empty arrays. Do not make up information. Parse this resume document and return only the JSON data.`
+              },
+              {
+                inlineData: {
+                  mimeType: mimeType,
+                  data: base64File
+                }
+              }
+            ]
           }
         ],
-        temperature: 0.1,
-        max_tokens: 2000
+        generationConfig: {
+          temperature: 0.1,
+          maxOutputTokens: 2000,
+        }
       }),
     });
 
-    if (!openAIResponse.ok) {
-      const errorText = await openAIResponse.text();
-      console.error('OpenAI API error:', errorText);
-      throw new Error(`OpenAI API error: ${openAIResponse.statusText} - ${errorText}`);
+    if (!geminiResponse.ok) {
+      const errorText = await geminiResponse.text();
+      console.error('Gemini API error:', errorText);
+      throw new Error(`Gemini API error: ${geminiResponse.statusText} - ${errorText}`);
     }
 
-    const openAIResult = await openAIResponse.json();
+    const geminiResult = await geminiResponse.json();
+    console.log('Gemini API response:', JSON.stringify(geminiResult, null, 2));
     
-    if (!openAIResult.choices || !openAIResult.choices[0] || !openAIResult.choices[0].message) {
-      throw new Error('Invalid response from OpenAI API');
+    if (!geminiResult.candidates || !geminiResult.candidates[0] || !geminiResult.candidates[0].content) {
+      throw new Error('Invalid response from Gemini API');
     }
 
-    const parsedContent = openAIResult.choices[0].message.content;
-    console.log('OpenAI response received:', parsedContent);
+    const parsedContent = geminiResult.candidates[0].content.parts[0].text;
+    console.log('Gemini response received:', parsedContent);
 
     // Parse the JSON response with better error handling
     let parsedData: ParsedResumeData;
@@ -211,15 +215,20 @@ File content (base64): data:${mimeType};base64,${base64File.substring(0, 100000)
       };
     }
 
-    // Generate ATS score based on resume completeness
+    // Generate ATS score and improved suggestions
     const atsScore = calculateATSScore(parsedData);
+    const suggestions = generateImprovementSuggestions(parsedData, atsScore);
 
     // Store the parsed data in Supabase
     const { data: resumeRecord, error: insertError } = await supabaseClient
       .from('resumes')
       .insert({
         title: `Resume - ${parsedData.name || 'Unknown'}`,
-        content: parsedData,
+        content: {
+          ...parsedData,
+          suggestions: suggestions,
+          parsed_with: 'gemini'
+        },
         user_id: userId || 'anonymous',
         ats_score: atsScore
       })
@@ -231,13 +240,17 @@ File content (base64): data:${mimeType};base64,${base64File.substring(0, 100000)
       // Don't throw error here, just log it as parsing was successful
     }
 
-    console.log('Resume processed successfully, ATS score:', atsScore);
+    console.log('Resume processed successfully with Gemini AI, ATS score:', atsScore);
 
     return new Response(JSON.stringify({ 
       success: true, 
-      parsedData,
+      parsedData: {
+        ...parsedData,
+        suggestions: suggestions
+      },
       atsScore,
-      resumeId: resumeRecord?.id
+      resumeId: resumeRecord?.id,
+      aiProvider: 'gemini'
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
@@ -277,4 +290,55 @@ function calculateATSScore(data: ParsedResumeData): number {
   if (data.projects.length > 0) score += 5;
   
   return Math.min(score, 100);
+}
+
+function generateImprovementSuggestions(data: ParsedResumeData, atsScore: number): string[] {
+  const suggestions: string[] = [];
+  
+  // Contact Information
+  if (!data.phone || data.phone.trim() === '') {
+    suggestions.push("Add a phone number to improve recruiter contact options");
+  }
+  
+  // Skills Section
+  if (data.skills.length < 5) {
+    suggestions.push("Add more relevant technical and soft skills to increase keyword matching");
+  }
+  if (data.skills.length < 10) {
+    suggestions.push("Include industry-specific keywords and technologies in your skills section");
+  }
+  
+  // Experience Section
+  if (data.experience.length === 0) {
+    suggestions.push("Add work experience, internships, or relevant projects to strengthen your profile");
+  } else if (data.experience.length < 3) {
+    suggestions.push("Include more work experiences or expand on current roles with detailed achievements");
+  }
+  
+  // Education Section
+  if (data.education.length === 0) {
+    suggestions.push("Add your educational background including degree, institution, and graduation year");
+  }
+  
+  // Projects Section
+  if (data.projects.length === 0) {
+    suggestions.push("Include relevant projects to showcase your practical skills and experience");
+  } else if (data.projects.length < 3) {
+    suggestions.push("Add more projects to demonstrate diverse technical abilities");
+  }
+  
+  // Overall ATS Optimization
+  if (atsScore < 60) {
+    suggestions.push("Use more industry-standard keywords and phrases that match job descriptions");
+    suggestions.push("Structure your resume with clear sections and consistent formatting");
+  } else if (atsScore < 80) {
+    suggestions.push("Quantify your achievements with specific metrics and numbers");
+    suggestions.push("Use action verbs to describe your responsibilities and accomplishments");
+  }
+  
+  // Professional Enhancement
+  suggestions.push("Consider adding certifications or professional development courses");
+  suggestions.push("Include measurable achievements and impact in your experience descriptions");
+  
+  return suggestions.slice(0, 6); // Return top 6 most relevant suggestions
 }

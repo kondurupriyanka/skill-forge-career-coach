@@ -1,7 +1,7 @@
 
 import React, { useState, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { Upload, FileText, CheckCircle, AlertCircle, Brain, Loader2 } from 'lucide-react';
+import { Upload, FileText, CheckCircle, AlertCircle, Brain, Loader2, Lightbulb, TrendingUp } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -27,6 +27,7 @@ interface ParsedResumeData {
     description: string;
     technologies: string[];
   }>;
+  suggestions?: string[];
 }
 
 const EnhancedResumeUpload = ({ userProfile, setUserProfile }) => {
@@ -34,6 +35,7 @@ const EnhancedResumeUpload = ({ userProfile, setUserProfile }) => {
   const [parsedData, setParsedData] = useState<ParsedResumeData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [atsScore, setAtsScore] = useState<number | null>(null);
+  const [aiProvider, setAiProvider] = useState<string>('');
   const { toast } = useToast();
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
@@ -106,6 +108,7 @@ const EnhancedResumeUpload = ({ userProfile, setUserProfile }) => {
       const parsed = parseResult.parsedData as ParsedResumeData;
       setParsedData(parsed);
       setAtsScore(parseResult.atsScore || 0);
+      setAiProvider(parseResult.aiProvider || 'ai');
       
       setUserProfile({
         ...parsed,
@@ -116,8 +119,8 @@ const EnhancedResumeUpload = ({ userProfile, setUserProfile }) => {
       setUploadStatus('success');
 
       toast({
-        title: "Resume Parsed Successfully!",
-        description: `ATS Score: ${parseResult.atsScore || 0}/100`,
+        title: "Resume Analyzed Successfully!",
+        description: `ATS Score: ${parseResult.atsScore || 0}/100 • Powered by ${parseResult.aiProvider === 'gemini' ? 'Google Gemini AI' : 'AI'}`,
       });
 
     } catch (err: any) {
@@ -149,6 +152,7 @@ const EnhancedResumeUpload = ({ userProfile, setUserProfile }) => {
     setError(null);
     setParsedData(null);
     setAtsScore(null);
+    setAiProvider('');
   };
 
   return (
@@ -162,7 +166,7 @@ const EnhancedResumeUpload = ({ userProfile, setUserProfile }) => {
           AI-Powered Resume Analysis
         </motion.h2>
         <p className="text-gray-600 max-w-2xl mx-auto">
-          Upload your resume and let our AI extract insights, match you with jobs, and create your personalized roadmap
+          Upload your resume and let our Google Gemini AI extract insights, match you with jobs, and create your personalized roadmap
         </p>
       </div>
 
@@ -193,6 +197,9 @@ const EnhancedResumeUpload = ({ userProfile, setUserProfile }) => {
               <div className="text-sm text-gray-500">
                 Supported formats: PDF, DOC, DOCX • Max size: 10MB
               </div>
+              <div className="mt-4 text-sm text-blue-600 font-medium">
+                ✨ Powered by Google Gemini AI
+              </div>
             </div>
           </motion.div>
         )}
@@ -205,12 +212,12 @@ const EnhancedResumeUpload = ({ userProfile, setUserProfile }) => {
           >
             <Loader2 className="w-16 h-16 text-blue-600 animate-spin mx-auto mb-4" />
             <h3 className="text-xl font-semibold text-gray-900 mb-2">
-              {uploadStatus === 'uploading' ? 'Uploading Resume...' : 'AI is Analyzing Your Resume...'}
+              {uploadStatus === 'uploading' ? 'Uploading Resume...' : 'Google Gemini AI is Analyzing Your Resume...'}
             </h3>
             <p className="text-gray-600">
               {uploadStatus === 'uploading' 
                 ? 'Securely uploading your file...' 
-                : 'Extracting skills, experience, and insights...'}
+                : 'Extracting skills, experience, and generating personalized suggestions...'}
             </p>
           </motion.div>
         )}
@@ -246,7 +253,7 @@ const EnhancedResumeUpload = ({ userProfile, setUserProfile }) => {
                 <CheckCircle className="w-6 h-6 text-green-600 mr-3" />
                 <div>
                   <h4 className="font-semibold text-green-800">Analysis Complete!</h4>
-                  <p className="text-green-700">Your resume has been successfully analyzed by AI.</p>
+                  <p className="text-green-700">Your resume has been successfully analyzed by Google Gemini AI.</p>
                 </div>
               </div>
               {atsScore !== null && (
@@ -262,18 +269,43 @@ const EnhancedResumeUpload = ({ userProfile, setUserProfile }) => {
               )}
             </div>
 
+            {/* AI Improvement Suggestions */}
+            {parsedData.suggestions && parsedData.suggestions.length > 0 && (
+              <div className="bg-gradient-to-r from-purple-50 to-blue-50 border border-purple-200 p-6 rounded-xl">
+                <div className="flex items-center mb-4">
+                  <Lightbulb className="w-6 h-6 text-purple-600 mr-3" />
+                  <h4 className="font-semibold text-purple-800">AI-Powered Improvement Suggestions</h4>
+                  <TrendingUp className="w-5 h-5 text-purple-600 ml-2" />
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {parsedData.suggestions.map((suggestion, index) => (
+                    <div key={index} className="bg-white p-3 rounded-lg border border-purple-100">
+                      <p className="text-purple-700 text-sm">{suggestion}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="bg-white p-8 rounded-xl shadow-lg border">
               <div className="flex items-center justify-between mb-6">
                 <div className="flex items-center">
                   <Brain className="w-8 h-8 text-purple-600 mr-3" />
                   <h3 className="text-2xl font-bold text-gray-900">AI-Extracted Profile</h3>
                 </div>
-                <button
-                  onClick={resetUpload}
-                  className="text-blue-600 hover:text-blue-700 font-medium"
-                >
-                  Upload Another
-                </button>
+                <div className="flex items-center space-x-4">
+                  {aiProvider === 'gemini' && (
+                    <span className="text-sm text-blue-600 font-medium bg-blue-50 px-3 py-1 rounded-full">
+                      Powered by Google Gemini
+                    </span>
+                  )}
+                  <button
+                    onClick={resetUpload}
+                    className="text-blue-600 hover:text-blue-700 font-medium"
+                  >
+                    Upload Another
+                  </button>
+                </div>
               </div>
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
