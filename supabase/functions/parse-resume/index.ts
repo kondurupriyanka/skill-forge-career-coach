@@ -66,6 +66,11 @@ serve(async (req) => {
 
     console.log('File downloaded successfully, size:', fileData.size);
 
+    const apiKey = Deno.env.get('OPENAI_API_KEY');
+    if (!apiKey) {
+      throw new Error('OpenAI API key not configured');
+    }
+
     // Convert file to base64 for OpenAI API
     const arrayBuffer = await fileData.arrayBuffer();
     const uint8Array = new Uint8Array(arrayBuffer);
@@ -73,12 +78,19 @@ serve(async (req) => {
 
     console.log('File converted to base64, length:', base64File.length);
 
-    const apiKey = Deno.env.get('OPENAI_API_KEY');
-    if (!apiKey) {
-      throw new Error('OpenAI API key not configured');
+    // Determine file type from the file path
+    const fileExtension = filePath.split('.').pop()?.toLowerCase();
+    let mimeType = 'application/pdf';
+    
+    if (fileExtension === 'docx') {
+      mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    } else if (fileExtension === 'doc') {
+      mimeType = 'application/msword';
     }
 
-    // Use OpenAI to parse the resume
+    console.log('Processing file with mime type:', mimeType);
+
+    // Use OpenAI to parse the resume with improved prompt
     const openAIResponse = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -90,43 +102,45 @@ serve(async (req) => {
         messages: [
           {
             role: 'system',
-            content: `You are an expert resume parser. Extract structured information from resumes and return it in JSON format. 
-            
-            Return the data in this exact format:
-            {
-              "name": "Full Name",
-              "email": "email@example.com", 
-              "phone": "phone number",
-              "skills": ["skill1", "skill2", ...],
-              "education": [
-                {
-                  "degree": "degree name",
-                  "institution": "school/university name",
-                  "year": "graduation year"
-                }
-              ],
-              "experience": [
-                {
-                  "title": "job title",
-                  "company": "company name", 
-                  "duration": "start - end date",
-                  "description": "brief description"
-                }
-              ],
-              "projects": [
-                {
-                  "name": "project name",
-                  "description": "project description",
-                  "technologies": ["tech1", "tech2", ...]
-                }
-              ]
-            }
-            
-            Extract only factual information. If information is missing, use empty strings or arrays.`
+            content: `You are an expert resume parser. Extract structured information from resumes and return ONLY valid JSON in the exact format specified below. Do not include any markdown formatting, explanations, or additional text.
+
+Return the data in this exact JSON format:
+{
+  "name": "Full Name",
+  "email": "email@example.com", 
+  "phone": "phone number or empty string",
+  "skills": ["skill1", "skill2", "skill3"],
+  "education": [
+    {
+      "degree": "degree name",
+      "institution": "school/university name",
+      "year": "graduation year or empty string"
+    }
+  ],
+  "experience": [
+    {
+      "title": "job title",
+      "company": "company name", 
+      "duration": "start - end date",
+      "description": "brief description"
+    }
+  ],
+  "projects": [
+    {
+      "name": "project name",
+      "description": "project description",
+      "technologies": ["tech1", "tech2"]
+    }
+  ]
+}
+
+Extract only factual information. If information is missing, use empty strings or empty arrays. Do not make up information.`
           },
           {
             role: 'user',
-            content: `Please parse this resume and extract the structured information. Here is the resume content to analyze: data:application/octet-stream;base64,${base64File.substring(0, 50000)}`
+            content: `Please parse this resume and extract the structured information. The file is a ${mimeType} document. Return only the JSON data as specified.
+
+File content (base64): data:${mimeType};base64,${base64File.substring(0, 100000)}`
           }
         ],
         temperature: 0.1,
@@ -137,25 +151,57 @@ serve(async (req) => {
     if (!openAIResponse.ok) {
       const errorText = await openAIResponse.text();
       console.error('OpenAI API error:', errorText);
-      throw new Error(`OpenAI API error: ${openAIResponse.statusText}`);
+      throw new Error(`OpenAI API error: ${openAIResponse.statusText} - ${errorText}`);
     }
 
     const openAIResult = await openAIResponse.json();
-    const parsedContent = openAIResult.choices[0].message.content;
+    
+    if (!openAIResult.choices || !openAIResult.choices[0] || !openAIResult.choices[0].message) {
+      throw new Error('Invalid response from OpenAI API');
+    }
 
+    const parsedContent = openAIResult.choices[0].message.content;
     console.log('OpenAI response received:', parsedContent);
 
-    // Parse the JSON response
+    // Parse the JSON response with better error handling
     let parsedData: ParsedResumeData;
     try {
-      // Remove any markdown formatting if present
-      const jsonContent = parsedContent.replace(/```json\n?/, '').replace(/```\n?$/, '');
+      // Clean the response - remove any markdown formatting if present
+      let jsonContent = parsedContent.trim();
+      
+      // Remove markdown code blocks if present
+      if (jsonContent.startsWith('```json')) {
+        jsonContent = jsonContent.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+      } else if (jsonContent.startsWith('```')) {
+        jsonContent = jsonContent.replace(/^```\s*/, '').replace(/\s*```$/, '');
+      }
+      
+      // Try to find JSON within the response if it's not clean
+      const jsonMatch = jsonContent.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        jsonContent = jsonMatch[0];
+      }
+      
       parsedData = JSON.parse(jsonContent);
+      
+      // Validate the parsed data structure
+      if (!parsedData.name && !parsedData.email) {
+        throw new Error('Failed to extract basic information from resume');
+      }
+      
+      // Ensure arrays exist
+      parsedData.skills = parsedData.skills || [];
+      parsedData.education = parsedData.education || [];
+      parsedData.experience = parsedData.experience || [];
+      parsedData.projects = parsedData.projects || [];
+      
     } catch (parseError) {
       console.error('JSON parsing error:', parseError);
-      // If JSON parsing fails, create a fallback structure
+      console.error('Raw content:', parsedContent);
+      
+      // Create a fallback structure
       parsedData = {
-        name: 'Unknown',
+        name: 'Unable to extract name',
         email: '',
         phone: '',
         skills: [],
@@ -185,7 +231,7 @@ serve(async (req) => {
       // Don't throw error here, just log it as parsing was successful
     }
 
-    console.log('Resume processed successfully');
+    console.log('Resume processed successfully, ATS score:', atsScore);
 
     return new Response(JSON.stringify({ 
       success: true, 
@@ -200,7 +246,7 @@ serve(async (req) => {
     console.error('Resume parsing error:', error);
     return new Response(JSON.stringify({ 
       success: false,
-      error: error.message || 'Failed to parse resume' 
+      error: error.message || 'Failed to parse resume'
     }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -212,9 +258,9 @@ function calculateATSScore(data: ParsedResumeData): number {
   let score = 0;
   
   // Basic information (30 points)
-  if (data.name && data.name !== 'Unknown') score += 10;
-  if (data.email) score += 10;
-  if (data.phone) score += 10;
+  if (data.name && data.name !== 'Unknown' && data.name !== 'Unable to extract name') score += 10;
+  if (data.email && data.email.includes('@')) score += 10;
+  if (data.phone && data.phone.trim() !== '') score += 10;
   
   // Skills (25 points)
   if (data.skills.length > 0) score += 15;
