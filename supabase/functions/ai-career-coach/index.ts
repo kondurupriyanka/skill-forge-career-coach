@@ -13,89 +13,115 @@ serve(async (req) => {
   }
 
   try {
-    const { message, userProfile, chatHistory } = await req.json();
-    const apiKey = Deno.env.get('OPENAI_API_KEY');
+    const { message, resumeData, userProfile, conversationType, interviewType, targetRole, question, answer } = await req.json();
+    const geminiApiKey = Deno.env.get('GEMINI_API_KEY');
 
-    if (!apiKey) {
-      throw new Error('OpenAI API key not configured');
+    if (!geminiApiKey) {
+      throw new Error('Gemini API key not configured');
     }
 
-    // Build context from user profile
-    let profileContext = '';
-    if (userProfile) {
-      profileContext = `
-User Profile Context:
-- Name: ${userProfile.name || 'Unknown'}
-- Skills: ${userProfile.skills?.join(', ') || 'No skills listed'}
-- Experience: ${userProfile.experience?.map(exp => `${exp.title} at ${exp.company}`).join(', ') || 'No experience listed'}
-- Education: ${userProfile.education?.map(edu => `${edu.degree} from ${edu.institution}`).join(', ') || 'No education listed'}
-`;
+    let prompt = '';
+    let systemContext = '';
+
+    switch (conversationType) {
+      case 'resume_chat':
+        systemContext = `You are an expert career counselor and resume analyst. The user has uploaded their resume with the following data: ${JSON.stringify(resumeData)}. 
+        Help them improve their resume, answer questions about their skills, suggest career paths, and provide tailored advice. Be encouraging and specific.`;
+        prompt = `User question: ${message}`;
+        break;
+
+      case 'interview_question':
+        systemContext = `You are an expert interviewer. Generate a ${interviewType} interview question for a ${targetRole} position. 
+        Consider the user's profile: ${JSON.stringify(userProfile)}.
+        Return JSON with: question, difficulty (easy/medium/hard), expectedAnswer, tips`;
+        prompt = `Generate a challenging but fair ${interviewType} interview question for ${targetRole}`;
+        break;
+
+      case 'interview_evaluation':
+        systemContext = `You are an expert interview evaluator. Evaluate the candidate's answer for a ${targetRole} position.
+        Question: ${question}
+        Answer: ${answer}
+        Provide detailed feedback with a score (0-100), strengths, improvements, and suggestions.
+        Return JSON format.`;
+        prompt = `Evaluate this interview answer for ${targetRole} position`;
+        break;
+
+      case 'skill_analysis':
+        systemContext = `You are a skill gap analyst. Analyze the user's skills against market demands for their target role.
+        User profile: ${JSON.stringify(userProfile)}`;
+        prompt = `Analyze skill gaps and provide improvement recommendations for ${message}`;
+        break;
+
+      default:
+        systemContext = 'You are a helpful AI career assistant.';
+        prompt = message;
     }
 
-    // Build chat history context
-    let conversationContext = '';
-    if (chatHistory && chatHistory.length > 0) {
-      conversationContext = '\nRecent conversation:\n' + 
-        chatHistory.map(msg => `${msg.type === 'user' ? 'User' : 'Assistant'}: ${msg.content}`).join('\n');
-    }
-
-    const systemPrompt = `You are an expert AI Career Coach with deep knowledge of current job markets, industry trends, and career development strategies. You provide personalized, actionable advice based on real-world data and current market conditions.
-
-Your expertise includes:
-- Resume optimization and ATS compatibility
-- Interview preparation and techniques
-- Skill gap analysis and learning recommendations
-- Industry trends and emerging technologies
-- Salary negotiation and career progression
-- Networking strategies and personal branding
-- Career transitions and pivoting strategies
-
-Always provide:
-- Specific, actionable advice
-- Current market insights when relevant
-- Personalized recommendations based on the user's profile
-- Encouragement and motivation
-- Follow-up questions to better understand their needs
-
-Be conversational, supportive, and professional. If you don't have specific information, acknowledge it and provide general best practices.
-
-${profileContext}${conversationContext}`;
-
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-4o',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: message }
+        contents: [
+          {
+            parts: [
+              {
+                text: `${systemContext}\n\n${prompt}`
+              }
+            ]
+          }
         ],
-        temperature: 0.7,
-        max_tokens: 1000
+        generationConfig: {
+          temperature: 0.7,
+          maxOutputTokens: 1000,
+        }
       }),
     });
 
     if (!response.ok) {
-      throw new Error(`OpenAI API error: ${response.statusText}`);
+      throw new Error(`Gemini API error: ${response.statusText}`);
     }
 
     const data = await response.json();
-    const aiResponse = data.choices[0].message.content;
+    let responseText = data.candidates[0].content.parts[0].text;
 
-    return new Response(JSON.stringify({ 
-      response: aiResponse,
-      timestamp: new Date().toISOString()
-    }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    // Try to parse JSON responses for structured data
+    let structuredResponse = null;
+    if (conversationType === 'interview_question' || conversationType === 'interview_evaluation') {
+      try {
+        // Clean the response to extract JSON
+        const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          structuredResponse = JSON.parse(jsonMatch[0]);
+        }
+      } catch (e) {
+        console.log('Could not parse JSON response, using text response');
+      }
+    }
+
+    if (conversationType === 'interview_question' && structuredResponse) {
+      return new Response(JSON.stringify(structuredResponse), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    } else if (conversationType === 'interview_evaluation' && structuredResponse) {
+      return new Response(JSON.stringify(structuredResponse), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    } else {
+      return new Response(JSON.stringify({ 
+        response: responseText,
+        conversationType 
+      }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
 
   } catch (error) {
     console.error('AI Career Coach error:', error);
     return new Response(JSON.stringify({ 
-      error: error.message || 'Failed to get AI response'
+      error: error.message || 'Failed to get AI response',
+      response: 'I apologize, but I encountered an error. Please try again later.'
     }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

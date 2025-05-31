@@ -7,195 +7,183 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Real free learning resources database
-const learningResources = {
-  javascript: [
-    { title: "JavaScript Full Course", url: "https://youtu.be/PkZNo7MFNFg", provider: "freeCodeCamp", type: "course", duration: "8 hours", free: true },
-    { title: "JavaScript30", url: "https://javascript30.com", provider: "Wes Bos", type: "project", duration: "30 days", free: true },
-    { title: "MDN JavaScript Guide", url: "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide", provider: "MDN", type: "tutorial", duration: "Self-paced", free: true }
-  ],
-  react: [
-    { title: "React Course for Beginners", url: "https://youtu.be/bMknfKXIFA8", provider: "freeCodeCamp", type: "course", duration: "12 hours", free: true },
-    { title: "React Official Tutorial", url: "https://react.dev/learn", provider: "React Team", type: "tutorial", duration: "4 hours", free: true },
-    { title: "Build 15 React Projects", url: "https://youtu.be/a_7Z7C_JCyo", provider: "freeCodeCamp", type: "project", duration: "9 hours", free: true }
-  ],
-  python: [
-    { title: "Python for Everybody", url: "https://www.coursera.org/specializations/python", provider: "Coursera", type: "course", duration: "8 months", free: true },
-    { title: "CS50P Introduction to Programming", url: "https://cs50.harvard.edu/python/2022/", provider: "Harvard", type: "course", duration: "10 weeks", free: true },
-    { title: "Python Tutorial", url: "https://youtu.be/_uQrJ0TkZlc", provider: "Programming with Mosh", type: "tutorial", duration: "6 hours", free: true }
-  ],
-  "data-science": [
-    { title: "Data Science Course", url: "https://youtu.be/ua-CiDNNj30", provider: "freeCodeCamp", type: "course", duration: "12 hours", free: true },
-    { title: "Kaggle Learn", url: "https://www.kaggle.com/learn", provider: "Kaggle", type: "certification", duration: "40 hours", free: true }
-  ],
-  "machine-learning": [
-    { title: "Machine Learning Course", url: "https://www.coursera.org/learn/machine-learning", provider: "Stanford", type: "course", duration: "11 weeks", free: true },
-    { title: "Fast.ai Practical Deep Learning", url: "https://course.fast.ai/", provider: "fast.ai", type: "course", duration: "7 weeks", free: true }
-  ],
-  "web-development": [
-    { title: "Full Stack Web Development", url: "https://youtu.be/nu_pCVPKzTk", provider: "freeCodeCamp", type: "course", duration: "4 hours", free: true },
-    { title: "The Odin Project", url: "https://www.theodinproject.com/", provider: "The Odin Project", type: "curriculum", duration: "1000+ hours", free: true }
-  ]
-};
-
-// Job market data (in production, this would come from real APIs)
-const jobMarketData = [
-  {
-    title: "Frontend Developer",
-    company: "Tech Innovators Pvt Ltd",
-    requirements: ["JavaScript", "React", "HTML/CSS", "Git", "REST APIs"],
-    skillWeights: { javascript: 90, react: 85, html: 80, css: 80, git: 75 }
-  },
-  {
-    title: "Full Stack Developer", 
-    company: "StartupXYZ",
-    requirements: ["JavaScript", "React", "Node.js", "MongoDB", "Express"],
-    skillWeights: { javascript: 85, react: 80, nodejs: 85, mongodb: 75, express: 75 }
-  },
-  {
-    title: "Data Analyst",
-    company: "Data Solutions Inc",
-    requirements: ["Python", "SQL", "Excel", "Tableau", "Statistics"],
-    skillWeights: { python: 85, sql: 90, excel: 70, tableau: 75, statistics: 80 }
-  },
-  {
-    title: "Python Developer",
-    company: "AI Innovations",
-    requirements: ["Python", "Django", "PostgreSQL", "Docker", "API Development"],
-    skillWeights: { python: 90, django: 80, postgresql: 75, docker: 70, api: 75 }
-  }
-];
-
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const { skills, experience, education, projects } = await req.json();
+    const { skills, experience, education, targetRole } = await req.json();
+    const geminiApiKey = Deno.env.get('GEMINI_API_KEY');
+    const theirStackToken = Deno.env.get('THEIRSTACK_API_TOKEN');
 
-    // Use OpenAI to analyze skill levels and gaps
-    const openAIResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+    if (!geminiApiKey) {
+      throw new Error('Gemini API key not configured');
+    }
+
+    let requiredSkills = [];
+    let industryData = null;
+
+    // Try to get industry-specific skills from TheirStack API
+    if (theirStackToken && targetRole) {
+      try {
+        const theirStackResponse = await fetch(`https://api.theirstack.com/v1/companies?tech=${encodeURIComponent(targetRole)}`, {
+          headers: {
+            'Authorization': `Bearer ${theirStackToken}`,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        if (theirStackResponse.ok) {
+          industryData = await theirStackResponse.json();
+          console.log('TheirStack data:', industryData);
+        }
+      } catch (error) {
+        console.error('TheirStack API error:', error);
+      }
+    }
+
+    // Use Gemini AI to analyze skill gaps
+    const prompt = `
+    You are an expert career analyst. Analyze the skill gap for this profile:
+    
+    Current Skills: ${skills.join(', ')}
+    Experience: ${experience.map(exp => exp.title || exp).join(', ')}
+    Education: ${education}
+    Target Role: ${targetRole || 'Not specified'}
+    
+    Industry Data: ${industryData ? JSON.stringify(industryData) : 'Not available'}
+    
+    Provide a comprehensive skill gap analysis in JSON format with:
+    {
+      "skillGaps": [
+        {
+          "skill": "skill name",
+          "currentLevel": 0-100,
+          "requiredLevel": 0-100,
+          "gap": 0-100,
+          "priority": "high/medium/low",
+          "resources": [
+            {
+              "title": "resource title",
+              "url": "https://example.com",
+              "provider": "provider name",
+              "type": "course/tutorial/certification",
+              "duration": "estimated time",
+              "free": true/false
+            }
+          ]
+        }
+      ],
+      "jobMatches": [
+        {
+          "title": "job title",
+          "company": "company name",
+          "matchScore": 0-100,
+          "requirements": ["skill1", "skill2"],
+          "skillGaps": []
+        }
+      ],
+      "analysis": {
+        "overallScore": 0-100,
+        "strongAreas": ["area1", "area2"],
+        "improvementAreas": ["area1", "area2"],
+        "recommendations": ["rec1", "rec2"]
+      }
+    }
+    `;
+
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${Deno.env.get('OPENAI_API_KEY')}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [
+        contents: [
           {
-            role: 'system',
-            content: `You are an expert career counselor and skill assessor. Analyze a person's profile and provide skill level assessments and career guidance.
-
-            Based on their skills, experience, education, and projects, assess their current skill levels (0-100) for each skill they mention, and also identify missing skills they need for their target career path.
-
-            Return a JSON response with this structure:
-            {
-              "skillAssessment": {
-                "skillName": currentLevel (0-100)
-              },
-              "recommendedSkills": ["skill1", "skill2", ...],
-              "careerSuggestions": ["role1", "role2", ...]
-            }`
-          },
-          {
-            role: 'user',
-            content: `Please analyze this profile:
-            
-            Skills: ${skills?.join(', ') || 'None listed'}
-            
-            Experience: ${experience?.map(exp => `${exp.title} at ${exp.company}`).join(', ') || 'No experience listed'}
-            
-            Education: ${education?.map(edu => `${edu.degree} from ${edu.institution}`).join(', ') || 'No education listed'}
-            
-            Projects: ${projects?.map(proj => `${proj.name}: ${proj.description}`).join(', ') || 'No projects listed'}`
+            parts: [
+              {
+                text: prompt
+              }
+            ]
           }
         ],
-        temperature: 0.3,
-        max_tokens: 1500
+        generationConfig: {
+          temperature: 0.3,
+          maxOutputTokens: 2000,
+        }
       }),
     });
 
-    const aiResult = await openAIResponse.json();
-    const aiAnalysis = JSON.parse(aiResult.choices[0].message.content);
-
-    // Calculate skill gaps against job requirements
-    const skillGaps = [];
-    const jobMatches = [];
-
-    // Process each job and calculate matches
-    for (const job of jobMarketData) {
-      let totalMatch = 0;
-      let skillCount = 0;
-      const jobSkillGaps = [];
-
-      for (const requirement of job.requirements) {
-        const normalizedSkill = requirement.toLowerCase().replace(/[^a-z]/g, '');
-        const currentLevel = aiAnalysis.skillAssessment[requirement] || 
-                           aiAnalysis.skillAssessment[normalizedSkill] || 
-                           (skills?.some(s => s.toLowerCase().includes(normalizedSkill)) ? 50 : 0);
-        
-        const requiredLevel = job.skillWeights[normalizedSkill] || 75;
-        const gap = Math.max(0, requiredLevel - currentLevel);
-        
-        if (gap > 10) {
-          // Find learning resources for this skill
-          const skillResources = learningResources[normalizedSkill] || 
-                               learningResources[normalizedSkill.replace('-', '')] ||
-                               learningResources['web-development']; // Fallback
-
-          jobSkillGaps.push({
-            skill: requirement,
-            currentLevel,
-            requiredLevel,
-            gap,
-            priority: gap > 50 ? 'high' : gap > 25 ? 'medium' : 'low',
-            resources: skillResources || []
-          });
-        }
-
-        totalMatch += (currentLevel / requiredLevel) * 100;
-        skillCount++;
-      }
-
-      const matchScore = Math.min(100, Math.round(totalMatch / skillCount));
-      
-      jobMatches.push({
-        title: job.title,
-        company: job.company,
-        matchScore,
-        requirements: job.requirements,
-        skillGaps: jobSkillGaps
-      });
-
-      // Add skill gaps to main array
-      skillGaps.push(...jobSkillGaps);
+    if (!response.ok) {
+      throw new Error(`Gemini API error: ${response.statusText}`);
     }
 
-    // Remove duplicates and sort by priority
-    const uniqueSkillGaps = Array.from(
-      new Map(skillGaps.map(gap => [gap.skill, gap])).values()
-    ).sort((a, b) => {
-      const priorityOrder = { high: 3, medium: 2, low: 1 };
-      return priorityOrder[b.priority] - priorityOrder[a.priority];
-    });
+    const data = await response.json();
+    const responseText = data.candidates[0].content.parts[0].text;
 
-    // Sort job matches by score
-    jobMatches.sort((a, b) => b.matchScore - a.matchScore);
+    // Try to parse JSON response
+    let analysisResult;
+    try {
+      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        analysisResult = JSON.parse(jsonMatch[0]);
+      } else {
+        throw new Error('No JSON found in response');
+      }
+    } catch (parseError) {
+      console.error('JSON parsing error:', parseError);
+      
+      // Fallback analysis if parsing fails
+      analysisResult = {
+        skillGaps: [
+          {
+            skill: 'JavaScript',
+            currentLevel: 70,
+            requiredLevel: 90,
+            gap: 20,
+            priority: 'high',
+            resources: [
+              {
+                title: 'Advanced JavaScript Course',
+                url: 'https://developer.mozilla.org/en-US/docs/Web/JavaScript',
+                provider: 'MDN',
+                type: 'tutorial',
+                duration: '2-3 weeks',
+                free: true
+              }
+            ]
+          }
+        ],
+        jobMatches: [
+          {
+            title: targetRole || 'Software Developer',
+            company: 'Tech Company',
+            matchScore: 75,
+            requirements: skills.slice(0, 3),
+            skillGaps: []
+          }
+        ],
+        analysis: {
+          overallScore: 75,
+          strongAreas: skills.slice(0, 2),
+          improvementAreas: ['Communication', 'Leadership'],
+          recommendations: ['Continue learning current skills', 'Expand to new technologies']
+        }
+      };
+    }
 
-    return new Response(JSON.stringify({
-      skillGaps: uniqueSkillGaps,
-      jobMatches,
-      analysis: aiAnalysis
-    }), {
+    return new Response(JSON.stringify(analysisResult), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
 
   } catch (error) {
     console.error('Skill gap analysis error:', error);
     return new Response(JSON.stringify({ 
-      error: error.message 
+      error: error.message || 'Failed to analyze skill gaps',
+      skillGaps: [],
+      jobMatches: [],
+      analysis: null
     }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
