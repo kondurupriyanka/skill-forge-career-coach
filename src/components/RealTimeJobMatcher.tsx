@@ -1,7 +1,6 @@
-
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Briefcase, MapPin, DollarSign, Clock, ExternalLink, Zap, RefreshCw, Globe, Wifi, AlertCircle, CheckCircle } from 'lucide-react';
+import { Briefcase, MapPin, DollarSign, Clock, ExternalLink, Zap, RefreshCw, Globe, Wifi, AlertCircle, CheckCircle, Sparkles, Brain } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 
 interface JobMatch {
@@ -19,6 +18,14 @@ interface JobMatch {
   source: string;
 }
 
+interface TechRoleCategory {
+  category: string;
+  roles: string[];
+  description: string;
+  averageSalary: string;
+  growthRate: string;
+}
+
 const RealTimeJobMatcher = ({ userProfile }) => {
   const [jobMatches, setJobMatches] = useState<JobMatch[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -27,6 +34,9 @@ const RealTimeJobMatcher = ({ userProfile }) => {
   const [sources, setSources] = useState<string[]>([]);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [appliedJobs, setAppliedJobs] = useState<Set<string>>(new Set());
+  const [techRoles, setTechRoles] = useState<TechRoleCategory[]>([]);
+  const [loadingTechRoles, setLoadingTechRoles] = useState(false);
+  const [showTechRoles, setShowTechRoles] = useState(false);
 
   useEffect(() => {
     if (userProfile?.skills) {
@@ -87,6 +97,43 @@ const RealTimeJobMatcher = ({ userProfile }) => {
     }
   };
 
+  const generateTechRolesWithAI = async () => {
+    setLoadingTechRoles(true);
+    
+    try {
+      console.log('Generating tech roles with AI based on current job matches');
+      
+      const jobTitles = jobMatches.map(job => job.title).join(', ');
+      const jobSkills = [...new Set(jobMatches.flatMap(job => job.skills))].join(', ');
+      
+      const { data, error } = await supabase.functions.invoke('ai-tech-roles-generator', {
+        body: {
+          currentJobs: jobTitles,
+          marketSkills: jobSkills,
+          userSkills: userProfile.skills,
+          userExperience: userProfile.experience
+        }
+      });
+
+      if (error) {
+        console.error('AI tech roles generation error:', error);
+        throw error;
+      }
+
+      console.log('Generated tech roles:', data);
+      
+      if (data && data.techRoles) {
+        setTechRoles(data.techRoles);
+        setShowTechRoles(true);
+      }
+    } catch (error) {
+      console.error('Error generating tech roles:', error);
+      setError('Failed to generate tech roles. Please try again.');
+    } finally {
+      setLoadingTechRoles(false);
+    }
+  };
+
   const handleApplyNow = (job: JobMatch) => {
     if (job.applicationUrl && job.applicationUrl !== '#') {
       // Mark job as applied
@@ -142,6 +189,16 @@ const RealTimeJobMatcher = ({ userProfile }) => {
         </div>
         
         <div className="flex items-center space-x-4">
+          {/* AI Tech Roles Button */}
+          <button
+            onClick={generateTechRolesWithAI}
+            disabled={loadingTechRoles || jobMatches.length === 0}
+            className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 disabled:opacity-50 flex items-center space-x-2 transition-colors"
+          >
+            <Brain className={`w-4 h-4 ${loadingTechRoles ? 'animate-spin' : ''}`} />
+            <span>{loadingTechRoles ? 'Generating...' : 'AI Tech Roles'}</span>
+          </button>
+          
           {/* Auto-refresh toggle */}
           <label className="flex items-center space-x-2 text-sm">
             <input
@@ -172,6 +229,50 @@ const RealTimeJobMatcher = ({ userProfile }) => {
           </button>
         </div>
       </div>
+
+      {/* AI-Generated Tech Roles Section */}
+      {showTechRoles && techRoles.length > 0 && (
+        <div className="bg-gradient-to-r from-purple-50 to-blue-50 border border-purple-200 rounded-xl p-6">
+          <div className="flex items-center mb-4">
+            <Sparkles className="w-6 h-6 text-purple-600 mr-2" />
+            <h3 className="text-xl font-bold text-gray-900">AI-Recommended Tech Roles</h3>
+            <span className="ml-2 bg-purple-100 text-purple-800 px-2 py-1 rounded-full text-xs font-medium">
+              Based on Current Market
+            </span>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {techRoles.map((category, index) => (
+              <motion.div
+                key={index}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: index * 0.1 }}
+                className="bg-white rounded-lg p-4 shadow-sm border border-gray-200"
+              >
+                <h4 className="font-semibold text-gray-900 mb-2">{category.category}</h4>
+                <p className="text-sm text-gray-600 mb-3">{category.description}</p>
+                
+                <div className="space-y-2 mb-3">
+                  <div className="text-xs text-gray-500">Average Salary: {category.averageSalary}</div>
+                  <div className="text-xs text-gray-500">Growth Rate: {category.growthRate}</div>
+                </div>
+                
+                <div className="space-y-1">
+                  {category.roles.slice(0, 5).map((role, roleIndex) => (
+                    <div key={roleIndex} className="text-sm text-blue-600 hover:text-blue-800 cursor-pointer">
+                      • {role}
+                    </div>
+                  ))}
+                  {category.roles.length > 5 && (
+                    <div className="text-xs text-gray-500">+{category.roles.length - 5} more roles</div>
+                  )}
+                </div>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Error message */}
       {error && (
