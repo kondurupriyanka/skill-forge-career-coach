@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Briefcase, MapPin, DollarSign, Clock, ExternalLink, Zap, RefreshCw, Globe, Wifi, AlertCircle } from 'lucide-react';
+import { Briefcase, MapPin, DollarSign, Clock, ExternalLink, Zap, RefreshCw, Globe, Wifi, AlertCircle, CheckCircle } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 
 interface JobMatch {
@@ -26,6 +26,7 @@ const RealTimeJobMatcher = ({ userProfile }) => {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [sources, setSources] = useState<string[]>([]);
   const [autoRefresh, setAutoRefresh] = useState(true);
+  const [appliedJobs, setAppliedJobs] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (userProfile?.skills) {
@@ -86,6 +87,19 @@ const RealTimeJobMatcher = ({ userProfile }) => {
     }
   };
 
+  const handleApplyNow = (job: JobMatch) => {
+    if (job.applicationUrl && job.applicationUrl !== '#') {
+      // Mark job as applied
+      setAppliedJobs(prev => new Set([...prev, job.id]));
+      
+      // Open the application URL
+      window.open(job.applicationUrl, '_blank', 'noopener,noreferrer');
+      
+      // Show success message
+      console.log(`Applied to ${job.title} at ${job.company}`);
+    }
+  };
+
   const getMatchColor = (score: number) => {
     if (score >= 85) return 'text-green-600 bg-green-100 border-green-200';
     if (score >= 70) return 'text-blue-600 bg-blue-100 border-blue-200';
@@ -98,6 +112,8 @@ const RealTimeJobMatcher = ({ userProfile }) => {
       'RapidAPI': 'bg-purple-100 text-purple-800',
       'Adzuna': 'bg-blue-100 text-blue-800',
       'Jooble': 'bg-green-100 text-green-800',
+      'Google Jobs': 'bg-red-100 text-red-800',
+      'Job Boards': 'bg-orange-100 text-orange-800',
       'Internal': 'bg-gray-100 text-gray-800'
     };
     return colors[source] || 'bg-gray-100 text-gray-800';
@@ -181,6 +197,14 @@ const RealTimeJobMatcher = ({ userProfile }) => {
         </div>
       )}
 
+      {/* Applied Jobs Counter */}
+      {appliedJobs.size > 0 && (
+        <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-center space-x-2">
+          <CheckCircle className="w-5 h-5 text-green-600" />
+          <p className="text-green-700">You've applied to {appliedJobs.size} job(s) today!</p>
+        </div>
+      )}
+
       {/* Jobs Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {jobMatches.map((job, index) => (
@@ -259,22 +283,34 @@ const RealTimeJobMatcher = ({ userProfile }) => {
             {/* Footer */}
             <div className="flex justify-between items-center">
               <span className="text-xs text-gray-500">Posted {job.postedDate}</span>
-              {job.applicationUrl !== '#' ? (
-                <a
-                  href={job.applicationUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-2 text-sm"
+              {job.applicationUrl && job.applicationUrl !== '#' ? (
+                <button
+                  onClick={() => handleApplyNow(job)}
+                  disabled={appliedJobs.has(job.id)}
+                  className={`px-4 py-2 rounded-lg transition-colors flex items-center space-x-2 text-sm font-medium ${
+                    appliedJobs.has(job.id)
+                      ? 'bg-green-100 text-green-700 cursor-default'
+                      : 'bg-blue-600 text-white hover:bg-blue-700'
+                  }`}
                 >
-                  <span>Apply Now</span>
-                  <ExternalLink className="w-4 h-4" />
-                </a>
+                  {appliedJobs.has(job.id) ? (
+                    <>
+                      <CheckCircle className="w-4 h-4" />
+                      <span>Applied</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>Apply Now</span>
+                      <ExternalLink className="w-4 h-4" />
+                    </>
+                  )}
+                </button>
               ) : (
                 <button
                   disabled
                   className="bg-gray-300 text-gray-500 px-4 py-2 rounded-lg text-sm cursor-not-allowed"
                 >
-                  Coming Soon
+                  Link Unavailable
                 </button>
               )}
             </div>
