@@ -10,12 +10,15 @@ const corsHeaders = {
 // Job API integrations
 const fetchJobsFromMultipleSources = async (userSkills: string[], location: string, jobType: string) => {
   const jobs: any[] = [];
+  console.log('Starting job fetch from multiple sources...');
   
   // RapidAPI - JSearch
   try {
     const rapidApiKey = Deno.env.get('RAPIDAPI_KEY');
+    console.log('RapidAPI Key available:', !!rapidApiKey);
     if (rapidApiKey) {
       const searchQuery = userSkills.slice(0, 3).join(' OR ');
+      console.log('RapidAPI search query:', searchQuery);
       const response = await fetch(`https://jsearch.p.rapidapi.com/search?query=${encodeURIComponent(searchQuery)}&page=1&num_pages=1&date_posted=today`, {
         headers: {
           'X-RapidAPI-Key': rapidApiKey,
@@ -23,8 +26,10 @@ const fetchJobsFromMultipleSources = async (userSkills: string[], location: stri
         }
       });
       
+      console.log('RapidAPI response status:', response.status);
       if (response.ok) {
         const data = await response.json();
+        console.log('RapidAPI data received:', data.data?.length || 0, 'jobs');
         const rapidJobs = data.data?.slice(0, 5).map((job: any) => ({
           id: `rapid_${job.job_id}`,
           title: job.job_title,
@@ -41,6 +46,7 @@ const fetchJobsFromMultipleSources = async (userSkills: string[], location: stri
           source: 'RapidAPI'
         })) || [];
         jobs.push(...rapidJobs);
+        console.log('Added', rapidJobs.length, 'jobs from RapidAPI');
       }
     }
   } catch (error) {
@@ -50,12 +56,16 @@ const fetchJobsFromMultipleSources = async (userSkills: string[], location: stri
   // Adzuna API
   try {
     const adzunaKey = Deno.env.get('ADZUNA_API_KEY');
+    console.log('Adzuna Key available:', !!adzunaKey);
     if (adzunaKey) {
       const searchQuery = userSkills.slice(0, 2).join(' ');
+      console.log('Adzuna search query:', searchQuery);
       const response = await fetch(`https://api.adzuna.com/v1/api/jobs/us/search/1?app_id=test&app_key=${adzunaKey}&results_per_page=5&what=${encodeURIComponent(searchQuery)}&where=${encodeURIComponent(location)}&max_days_old=7`);
       
+      console.log('Adzuna response status:', response.status);
       if (response.ok) {
         const data = await response.json();
+        console.log('Adzuna data received:', data.results?.length || 0, 'jobs');
         const adzunaJobs = data.results?.slice(0, 5).map((job: any) => ({
           id: `adzuna_${job.id}`,
           title: job.title,
@@ -72,6 +82,7 @@ const fetchJobsFromMultipleSources = async (userSkills: string[], location: stri
           source: 'Adzuna'
         })) || [];
         jobs.push(...adzunaJobs);
+        console.log('Added', adzunaJobs.length, 'jobs from Adzuna');
       }
     }
   } catch (error) {
@@ -81,8 +92,10 @@ const fetchJobsFromMultipleSources = async (userSkills: string[], location: stri
   // Jooble API
   try {
     const joobleKey = Deno.env.get('JOOBLE_API_KEY');
+    console.log('Jooble Key available:', !!joobleKey);
     if (joobleKey) {
       const searchQuery = userSkills.slice(0, 2).join(' ');
+      console.log('Jooble search query:', searchQuery);
       const response = await fetch('https://jooble.org/api/' + joobleKey, {
         method: 'POST',
         headers: {
@@ -95,8 +108,10 @@ const fetchJobsFromMultipleSources = async (userSkills: string[], location: stri
         })
       });
       
+      console.log('Jooble response status:', response.status);
       if (response.ok) {
         const data = await response.json();
+        console.log('Jooble data received:', data.jobs?.length || 0, 'jobs');
         const joobleJobs = data.jobs?.slice(0, 5).map((job: any) => ({
           id: `jooble_${job.id || Math.random()}`,
           title: job.title,
@@ -111,6 +126,7 @@ const fetchJobsFromMultipleSources = async (userSkills: string[], location: stri
           source: 'Jooble'
         })) || [];
         jobs.push(...joobleJobs);
+        console.log('Added', joobleJobs.length, 'jobs from Jooble');
       }
     }
   } catch (error) {
@@ -119,9 +135,11 @@ const fetchJobsFromMultipleSources = async (userSkills: string[], location: stri
 
   // Add fallback mock jobs if no external APIs return results
   if (jobs.length === 0) {
+    console.log('No jobs from external APIs, generating fallback jobs');
     jobs.push(...generateFallbackJobs(userSkills, location, jobType));
   }
 
+  console.log('Total jobs fetched:', jobs.length);
   return jobs;
 };
 
@@ -166,35 +184,37 @@ const formatPostedDate = (dateString: string) => {
 };
 
 const generateFallbackJobs = (userSkills: string[], location: string, jobType: string) => {
+  console.log('Generating fallback jobs for skills:', userSkills);
+  
   const jobTemplates = [
     {
-      title: 'Senior Software Engineer',
-      company: 'TechCorp Solutions',
-      skills: ['React', 'TypeScript', 'Node.js', 'AWS'],
+      title: 'Full Stack AI Developer',
+      company: 'AI Innovations Inc',
+      skills: ['Python', 'React', 'FastAPI', 'Machine Learning'],
       salary: '$90,000 - $130,000'
     },
     {
-      title: 'Full Stack Developer',
-      company: 'InnovateTech',
-      skills: ['JavaScript', 'Python', 'PostgreSQL', 'Docker'],
+      title: 'Frontend Developer',
+      company: 'TechStart Solutions',
+      skills: ['React.js', 'JavaScript', 'TypeScript', 'Frontend Development'],
       salary: '$80,000 - $120,000'
     },
     {
-      title: 'Frontend Developer',
-      company: 'DesignHub Inc',
-      skills: ['React', 'CSS', 'JavaScript', 'Figma'],
-      salary: '$70,000 - $100,000'
-    },
-    {
-      title: 'Data Scientist',
-      company: 'DataFlow Analytics',
-      skills: ['Python', 'Machine Learning', 'SQL', 'TensorFlow'],
+      title: 'AI/ML Engineer',
+      company: 'DataFlow Technologies',
+      skills: ['Python', 'TensorFlow', 'NLP', 'Generative AI'],
       salary: '$95,000 - $140,000'
     },
     {
-      title: 'DevOps Engineer',
+      title: 'Computer Vision Engineer',
+      company: 'Vision Labs',
+      skills: ['OpenCV', 'Python', 'Machine Learning', 'AI'],
+      salary: '$85,000 - $125,000'
+    },
+    {
+      title: 'Backend Developer',
       company: 'CloudFirst Systems',
-      skills: ['AWS', 'Kubernetes', 'Docker', 'CI/CD'],
+      skills: ['Python', 'FastAPI', 'SQL', 'Scalable Web Applications'],
       salary: '$85,000 - $125,000'
     }
   ];
@@ -244,14 +264,20 @@ const calculateMatchScore = (jobSkills: string[], userSkills: string[]) => {
 };
 
 serve(async (req) => {
+  console.log('Real-time job matcher function called');
+  
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const { userSkills, experience, preferences } = await req.json();
+    const requestBody = await req.json();
+    console.log('Request body received:', requestBody);
     
-    console.log('Fetching real-time jobs for skills:', userSkills);
+    const { userSkills, experience, preferences } = requestBody;
+    
+    console.log('Processing job search for skills:', userSkills);
+    console.log('Location preference:', preferences?.location);
 
     // Fetch jobs from multiple sources
     const jobs = await fetchJobsFromMultipleSources(
@@ -271,14 +297,18 @@ serve(async (req) => {
       .sort((a, b) => b.matchScore - a.matchScore)
       .slice(0, 12);
 
-    console.log(`Successfully fetched ${sortedJobs.length} jobs from multiple sources`);
+    console.log(`Successfully processed ${sortedJobs.length} jobs from multiple sources`);
 
-    return new Response(JSON.stringify({ 
+    const response = {
       jobs: sortedJobs,
       totalMatches: sortedJobs.length,
       lastUpdated: new Date().toISOString(),
       sources: [...new Set(sortedJobs.map(job => job.source))]
-    }), {
+    };
+
+    console.log('Sending response with', response.jobs.length, 'jobs');
+
+    return new Response(JSON.stringify(response), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
 

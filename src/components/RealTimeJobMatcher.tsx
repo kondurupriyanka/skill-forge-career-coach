@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Briefcase, MapPin, DollarSign, Clock, ExternalLink, Zap, RefreshCw, Globe, Wifi } from 'lucide-react';
+import { Briefcase, MapPin, DollarSign, Clock, ExternalLink, Zap, RefreshCw, Globe, Wifi, AlertCircle } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 
 interface JobMatch {
@@ -22,6 +22,7 @@ interface JobMatch {
 const RealTimeJobMatcher = ({ userProfile }) => {
   const [jobMatches, setJobMatches] = useState<JobMatch[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [sources, setSources] = useState<string[]>([]);
   const [autoRefresh, setAutoRefresh] = useState(true);
@@ -44,8 +45,10 @@ const RealTimeJobMatcher = ({ userProfile }) => {
 
   const fetchRealTimeJobs = async () => {
     setIsLoading(true);
+    setError(null);
+    
     try {
-      console.log('Fetching real-time jobs...');
+      console.log('Fetching real-time jobs with skills:', userProfile.skills);
       
       const { data, error } = await supabase.functions.invoke('real-time-job-matcher', {
         body: {
@@ -66,12 +69,18 @@ const RealTimeJobMatcher = ({ userProfile }) => {
 
       console.log('Received job data:', data);
       
-      setJobMatches(data.jobs || []);
-      setSources(data.sources || []);
-      setLastUpdated(new Date());
+      if (data && data.jobs) {
+        setJobMatches(data.jobs);
+        setSources(data.sources || []);
+        setLastUpdated(new Date());
+        console.log('Successfully loaded', data.jobs.length, 'jobs');
+      } else {
+        console.warn('No jobs data received');
+        setJobMatches([]);
+      }
     } catch (error) {
       console.error('Real-time job matching error:', error);
-      // Show user-friendly error but don't clear existing jobs
+      setError('Failed to fetch real-time jobs. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -147,6 +156,14 @@ const RealTimeJobMatcher = ({ userProfile }) => {
           </button>
         </div>
       </div>
+
+      {/* Error message */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center space-x-2">
+          <AlertCircle className="w-5 h-5 text-red-600" />
+          <p className="text-red-700">{error}</p>
+        </div>
+      )}
 
       {/* Sources indicator */}
       {sources.length > 0 && (
@@ -275,7 +292,7 @@ const RealTimeJobMatcher = ({ userProfile }) => {
       )}
 
       {/* Empty state */}
-      {!isLoading && jobMatches.length === 0 && (
+      {!isLoading && jobMatches.length === 0 && !error && (
         <div className="text-center py-12">
           <Briefcase className="w-16 h-16 text-gray-400 mx-auto mb-4" />
           <h3 className="text-xl font-semibold text-gray-600 mb-2">No Jobs Found</h3>
