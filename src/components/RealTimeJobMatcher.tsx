@@ -1,6 +1,7 @@
+
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Briefcase, MapPin, DollarSign, Clock, ExternalLink, Zap, RefreshCw, Globe, Wifi, AlertCircle, CheckCircle, Sparkles, Brain } from 'lucide-react';
+import { Briefcase, MapPin, DollarSign, Clock, ExternalLink, Zap, RefreshCw, Globe, Wifi, AlertCircle, CheckCircle, Sparkles, Brain, Share } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 
 interface JobMatch {
@@ -139,11 +140,38 @@ const RealTimeJobMatcher = ({ userProfile }) => {
       // Mark job as applied
       setAppliedJobs(prev => new Set([...prev, job.id]));
       
-      // Open the application URL
-      window.open(job.applicationUrl, '_blank', 'noopener,noreferrer');
+      // Show success notification
+      console.log(`Navigating to application for ${job.title} at ${job.company}`);
+      console.log('Application URL:', job.applicationUrl);
+      
+      // Open the application URL in a new tab with specific settings for better user experience
+      const newWindow = window.open(job.applicationUrl, '_blank', 'noopener,noreferrer,width=1200,height=800');
+      
+      // Check if the window was blocked by popup blocker
+      if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') {
+        // Fallback: try to navigate in the same window
+        window.location.href = job.applicationUrl;
+      }
       
       // Show success message
-      console.log(`Applied to ${job.title} at ${job.company}`);
+      console.log(`Successfully opened application for ${job.title} at ${job.company}`);
+    } else {
+      console.warn('No valid application URL available for this job');
+      setError('No application link available for this job');
+    }
+  };
+
+  const handleShareJob = (job: JobMatch) => {
+    if (navigator.share) {
+      navigator.share({
+        title: `${job.title} at ${job.company}`,
+        text: `Check out this job opportunity: ${job.title} at ${job.company}`,
+        url: job.applicationUrl
+      }).catch(console.error);
+    } else {
+      // Fallback: copy to clipboard
+      navigator.clipboard.writeText(`${job.title} at ${job.company} - ${job.applicationUrl}`);
+      console.log('Job details copied to clipboard');
     }
   };
 
@@ -156,7 +184,7 @@ const RealTimeJobMatcher = ({ userProfile }) => {
 
   const getSourceColor = (source: string) => {
     const colors = {
-      'RapidAPI': 'bg-purple-100 text-purple-800',
+      'RapidAPI (JSearch)': 'bg-purple-100 text-purple-800',
       'Adzuna': 'bg-blue-100 text-blue-800',
       'Jooble': 'bg-green-100 text-green-800',
       'Google Jobs': 'bg-red-100 text-red-800',
@@ -384,36 +412,48 @@ const RealTimeJobMatcher = ({ userProfile }) => {
             {/* Footer */}
             <div className="flex justify-between items-center">
               <span className="text-xs text-gray-500">Posted {job.postedDate}</span>
-              {job.applicationUrl && job.applicationUrl !== '#' ? (
+              <div className="flex items-center space-x-2">
+                {/* Share button */}
                 <button
-                  onClick={() => handleApplyNow(job)}
-                  disabled={appliedJobs.has(job.id)}
-                  className={`px-4 py-2 rounded-lg transition-colors flex items-center space-x-2 text-sm font-medium ${
-                    appliedJobs.has(job.id)
-                      ? 'bg-green-100 text-green-700 cursor-default'
-                      : 'bg-blue-600 text-white hover:bg-blue-700'
-                  }`}
+                  onClick={() => handleShareJob(job)}
+                  className="bg-gray-100 text-gray-600 p-2 rounded-lg hover:bg-gray-200 transition-colors"
+                  title="Share job"
                 >
-                  {appliedJobs.has(job.id) ? (
-                    <>
-                      <CheckCircle className="w-4 h-4" />
-                      <span>Applied</span>
-                    </>
-                  ) : (
-                    <>
-                      <span>Apply Now</span>
-                      <ExternalLink className="w-4 h-4" />
-                    </>
-                  )}
+                  <Share className="w-4 h-4" />
                 </button>
-              ) : (
-                <button
-                  disabled
-                  className="bg-gray-300 text-gray-500 px-4 py-2 rounded-lg text-sm cursor-not-allowed"
-                >
-                  Link Unavailable
-                </button>
-              )}
+                
+                {/* Apply button */}
+                {job.applicationUrl && job.applicationUrl !== '#' ? (
+                  <button
+                    onClick={() => handleApplyNow(job)}
+                    disabled={appliedJobs.has(job.id)}
+                    className={`px-4 py-2 rounded-lg transition-colors flex items-center space-x-2 text-sm font-medium ${
+                      appliedJobs.has(job.id)
+                        ? 'bg-green-100 text-green-700 cursor-default'
+                        : 'bg-blue-600 text-white hover:bg-blue-700'
+                    }`}
+                  >
+                    {appliedJobs.has(job.id) ? (
+                      <>
+                        <CheckCircle className="w-4 h-4" />
+                        <span>Applied</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>Apply Now</span>
+                        <ExternalLink className="w-4 h-4" />
+                      </>
+                    )}
+                  </button>
+                ) : (
+                  <button
+                    disabled
+                    className="bg-gray-300 text-gray-500 px-4 py-2 rounded-lg text-sm cursor-not-allowed"
+                  >
+                    Link Unavailable
+                  </button>
+                )}
+              </div>
             </div>
           </motion.div>
         ))}
