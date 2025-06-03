@@ -3,21 +3,9 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Briefcase, MapPin, DollarSign, Clock, ExternalLink, Zap, RefreshCw, Globe, Wifi, AlertCircle, CheckCircle, Sparkles, Brain, Share } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
-
-interface JobMatch {
-  id: string;
-  title: string;
-  company: string;
-  location: string;
-  salary: string;
-  type: string;
-  matchScore: number;
-  skills: string[];
-  description: string;
-  postedDate: string;
-  applicationUrl: string;
-  source: string;
-}
+import { fetchJobs, saveJobApplication, JobMatch } from '@/services/jobApi';
+import { useToast } from '@/hooks/use-toast';
+import JobApplicationStats from './JobApplicationStats';
 
 interface TechRoleCategory {
   category: string;
@@ -28,6 +16,7 @@ interface TechRoleCategory {
 }
 
 const RealTimeJobMatcher = ({ userProfile }) => {
+  const { toast } = useToast();
   const [jobMatches, setJobMatches] = useState<JobMatch[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -62,37 +51,50 @@ const RealTimeJobMatcher = ({ userProfile }) => {
     try {
       console.log('Fetching real-time jobs with skills:', userProfile.skills);
       
-      const { data, error } = await supabase.functions.invoke('real-time-job-matcher', {
-        body: {
-          userSkills: userProfile.skills,
-          experience: userProfile.experience,
-          preferences: {
-            location: userProfile.location || 'Remote',
-            jobType: 'Full-time',
-            minSalary: 50000
-          }
-        }
+      // Use our new job API service
+      const result = await fetchJobs({
+        skills: userProfile.skills || [],
+        location: userProfile.location || 'Remote',
+        jobType: 'Full-time',
+        minSalary: 50000,
+        experience: userProfile.experience
       });
-
-      if (error) {
-        console.error('Supabase function error:', error);
-        throw error;
-      }
-
-      console.log('Received job data:', data);
       
-      if (data && data.jobs) {
-        setJobMatches(data.jobs);
-        setSources(data.sources || []);
+      console.log('Received job data:', result);
+      
+      if (result && result.jobs && result.jobs.length > 0) {
+        setJobMatches(result.jobs);
+        setSources(result.sources || []);
         setLastUpdated(new Date());
-        console.log('Successfully loaded', data.jobs.length, 'jobs');
+        console.log('Successfully loaded', result.jobs.length, 'jobs');
+        
+        // Show success toast
+        toast({
+          title: "Jobs Updated",
+          description: `Found ${result.jobs.length} matching jobs for your profile.`,
+          variant: "success",
+        });
       } else {
         console.warn('No jobs data received');
         setJobMatches([]);
+        
+        // Show info toast
+        toast({
+          title: "No Jobs Found",
+          description: "No matching jobs found. Try updating your skills or location.",
+          variant: "default",
+        });
       }
     } catch (error) {
       console.error('Real-time job matching error:', error);
       setError('Failed to fetch real-time jobs. Please try again.');
+      
+      // Show error toast
+      toast({
+        title: "Error",
+        description: "Failed to fetch real-time jobs. Please try again.",
+        variant: "destructive",
+      });
     } finally {
       setIsLoading(false);
     }
@@ -135,29 +137,63 @@ const RealTimeJobMatcher = ({ userProfile }) => {
     }
   };
 
-  const handleApplyNow = (job: JobMatch) => {
+  const handleApplyNow = async (job: JobMatch) => {
     if (job.applicationUrl && job.applicationUrl !== '#') {
-      // Mark job as applied
-      setAppliedJobs(prev => new Set([...prev, job.id]));
-      
-      // Show success notification
-      console.log(`Navigating to application for ${job.title} at ${job.company}`);
-      console.log('Application URL:', job.applicationUrl);
-      
-      // Open the application URL in a new tab with specific settings for better user experience
-      const newWindow = window.open(job.applicationUrl, '_blank', 'noopener,noreferrer,width=1200,height=800');
-      
-      // Check if the window was blocked by popup blocker
-      if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') {
-        // Fallback: try to navigate in the same window
-        window.location.href = job.applicationUrl;
+      try {
+        // Mark job as applied
+        setAppliedJobs(prev => new Set([...prev, job.id]));
+        
+        // Save job application to database
+        if (userProfile?.id) {
+          const saved = await saveJobApplication(job, userProfile.id);
+          if (saved) {
+            console.log(`Successfully saved application for ${job.title} at ${job.company}`);
+            
+            // Show success toast
+            toast({
+              title: "Application Submitted",
+              description: `Your application for ${job.title} at ${job.company} has been recorded.`,
+              variant: "success",
+            });
+          }
+        }
+        
+        // Show success notification
+        console.log(`Navigating to application for ${job.title} at ${job.company}`);
+        console.log('Application URL:', job.applicationUrl);
+        
+        // Open the application URL in a new tab with specific settings for better user experience
+        const newWindow = window.open(job.applicationUrl, '_blank', 'noopener,noreferrer,width=1200,height=800');
+        
+        // Check if the window was blocked by popup blocker
+        if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') {
+          // Fallback: try to navigate in the same window
+          window.location.href = job.applicationUrl;
+        }
+        
+        // Show success message
+        console.log(`Successfully opened application for ${job.title} at ${job.company}`);
+      } catch (error) {
+        console.error('Error applying to job:', error);
+        setError('Failed to apply to job. Please try again.');
+        
+        // Show error toast
+        toast({
+          title: "Application Failed",
+          description: "Failed to apply to job. Please try again.",
+          variant: "destructive",
+        });
       }
-      
-      // Show success message
-      console.log(`Successfully opened application for ${job.title} at ${job.company}`);
     } else {
       console.warn('No valid application URL available for this job');
       setError('No application link available for this job');
+      
+      // Show error toast
+      toast({
+        title: "Application Failed",
+        description: "No application link available for this job.",
+        variant: "destructive",
+      });
     }
   };
 
@@ -326,6 +362,13 @@ const RealTimeJobMatcher = ({ userProfile }) => {
         </div>
       )}
 
+      {/* Job Application Stats */}
+      {userProfile?.id && (
+        <div className="mb-6">
+          <JobApplicationStats userId={userProfile.id} />
+        </div>
+      )}
+      
       {/* Applied Jobs Counter */}
       {appliedJobs.size > 0 && (
         <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-center space-x-2">
